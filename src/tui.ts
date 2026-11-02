@@ -1,8 +1,10 @@
 // Checklist-to-Goal — TUI half.
 //
 // Renders two things from the shared state file (polled every second):
-//   * sidebar_content : the full checklist (objective, progress bar, every task)
-//   * app_bottom       : a compact progress bar + current task, under the prompt
+//   * sidebar_content       : the full checklist (objective, progress bar, every task)
+//   * session_prompt_right  : a compact progress badge, to the RIGHT of the
+//                             prompt box (kept off app_bottom, where it fought
+//                             the "working" indicator)
 //
 // Supports both TUI plugin-API generations the way the goal plugin does:
 //   * V1: `tui` export -> api.slots.register(...) with snake_case slot names
@@ -15,7 +17,7 @@ import type { TuiCommand, TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tu
 import { createElement, insert, setProp } from "@opentui/solid"
 import { createSignal, onCleanup } from "solid-js"
 
-import { type Checklist, getChecklist, nextPending, progress, progressBar, taskDescription, taskTitle } from "./state"
+import { type Checklist, getChecklist, progress, progressBar, taskDescription, taskTitle } from "./state"
 import { MESSAGES, shortTitle, taskSymbol, truncate } from "./messages"
 
 type ElementChild = string | number | boolean | null | undefined | object | (() => ElementChild)
@@ -97,9 +99,16 @@ function checklistBox(cl: Checklist, pal: Palette, ctrl: ExpandController) {
     // terminal does not deliver mouse clicks.
     const open = Boolean(desc) && (t.status === "active" || ctrl.isExpanded(t.id))
     const arrow = desc ? (open ? "▾" : "▸") : " "
-    const row: ElementChild[] = [
-      text({ fg }, [`${arrow} ${taskSymbol(t.status)} ${i + 1}. ${shortTitle(taskTitle(t), 38)}`]),
-    ]
+    // Color the status glyph on its own: ✓ done = green, ● active = primary,
+    // ○ pending / ✗ blocked = yellow. Split the headline into spans (a flex row)
+    // so only the symbol carries that color; the rest keeps the row color.
+    const symColor = t.status === "done" ? pal.success : t.status === "active" ? pal.primary : pal.warning
+    const headline = box({ flexDirection: "row" }, [
+      text({ fg }, [`${arrow} `]),
+      text({ fg: symColor }, [taskSymbol(t.status)]),
+      text({ fg }, [` ${i + 1}. ${shortTitle(taskTitle(t), 38)}`]),
+    ])
+    const row: ElementChild[] = [headline]
     if (open && desc) row.push(text({ fg: pal.muted }, [`      ${truncate(desc, 180)}`]))
     const rowBox = box({ flexDirection: "column" }, row)
     if (desc) {
@@ -186,10 +195,11 @@ function ProgressBadgeV1(api: TuiPluginApi) {
       const c = cl()
       if (!c || (c.status !== "active" && c.status !== "complete")) return null
       const { ratio, pct } = progress(c)
-      const next = nextPending(c)
-      const label = c.status === "complete" ? MESSAGES.complete : next ? shortTitle(taskTitle(next), 28) : ""
-      return text({ fg: c.status === "complete" ? theme.success : theme.primary }, [
-        `C2G ${progressBar(ratio, 10)} ${pct}%${label ? ` ▸ ${label}` : ""}`,
+      const done = c.status === "complete"
+      // Compact: it sits to the RIGHT of the prompt box, so no task label
+      // (that lives in the sidebar) — just an identifier, bar and percent.
+      return text({ fg: done ? theme.success : theme.primary }, [
+        done ? "C2G ✓ 100%" : `C2G ${progressBar(ratio, 8)} ${pct}%`,
       ])
     },
   ])
@@ -236,7 +246,7 @@ const tui: TuiPlugin = async (api) => {
         if (!sid) return null
         return ChecklistSidebarV1(api, sid, ctrl)
       },
-      app_bottom() {
+      session_prompt_right() {
         return ProgressBadgeV1(api)
       },
     },
@@ -344,10 +354,11 @@ function ProgressBadgeV2(context: TuiV2Context) {
       const c = cl()
       if (!c || (c.status !== "active" && c.status !== "complete")) return null
       const { ratio, pct } = progress(c)
-      const next = nextPending(c)
-      const label = c.status === "complete" ? MESSAGES.complete : next ? shortTitle(taskTitle(next), 28) : ""
-      return text({ fg: c.status === "complete" ? c0.success : c0.primary }, [
-        `C2G ${progressBar(ratio, 10)} ${pct}%${label ? ` ▸ ${label}` : ""}`,
+      const done = c.status === "complete"
+      // Compact: sits to the RIGHT of the prompt box (out of the bottom-left
+      // "working" indicator's way) — identifier, bar and percent only.
+      return text({ fg: done ? c0.success : c0.primary }, [
+        done ? "C2G ✓ 100%" : `C2G ${progressBar(ratio, 8)} ${pct}%`,
       ])
     },
   ])
@@ -356,7 +367,7 @@ function ProgressBadgeV2(context: TuiV2Context) {
 export function setupTuiV2(context: TuiV2Context): SlotDispose {
   const ctrl = createExpandController()
   const offSidebar = registerSlotV2(context, "sidebar.content", (props) => ChecklistSidebarV2(context, props.sessionID, ctrl))
-  const offBottom = registerSlotV2(context, "app.bottom", () => ProgressBadgeV2(context))
+  const offBottom = registerSlotV2(context, "session.prompt.right", () => ProgressBadgeV2(context))
   return () => {
     offSidebar()
     offBottom()

@@ -27,7 +27,7 @@ import {
   saveChecklist,
   taskTitle,
 } from "./state"
-import { buildContinuation, buildSystemRules, renderChecklistText } from "./messages"
+import { buildContinuation, buildSystemRules, buildTargetKickoff, renderChecklistText } from "./messages"
 import { parseMarkdownChecklist } from "./parse"
 
 const DEFAULT_MAX_AUTO_TURNS = 200
@@ -67,6 +67,22 @@ interface SessionContextArg {
   sessionID?: string
   system: { type: string; text: string }[]
 }
+// `context.tool.hook("execute.after", ...)` input. `result` is mutable: setting
+// `result.title` replaces the tool-call header the TUI would otherwise build
+// from the raw args (which dumped the whole `evidence` string into the chat).
+interface ToolResultObj {
+  title?: string
+  output?: string
+  content?: string | unknown[]
+  metadata?: Record<string, unknown>
+}
+interface ToolExecuteAfter {
+  tool?: string
+  sessionID?: string
+  id?: string
+  status?: string
+  result?: ToolResultObj
+}
 interface PromptHookInput {
   sessionID?: string
   prompt?: { text?: string; agents?: { name?: string }[] }
@@ -79,7 +95,10 @@ interface V2Event {
 interface V2Context {
   options?: Record<string, unknown>
   directory?: string
-  tool: { transform: (fn: (draft: { add: (t: ToolDef) => void }) => void) => Promise<unknown> }
+  tool: {
+    transform: (fn: (draft: { add: (t: ToolDef) => void }) => void) => Promise<unknown>
+    hook?: (name: string, cb: (input: ToolExecuteAfter) => void | Promise<void>) => Promise<unknown>
+  }
   command: {
     list?: () => Promise<{ data: { name: string }[] }>
     transform: (fn: (draft: { add: (c: CommandDef) => void }) => void) => Promise<unknown>
@@ -115,18 +134,40 @@ function jsonContent(cl: Checklist | null, extra: Record<string, unknown> = {}):
   return { content: JSON.stringify({ checklist: cl, ...extra }, null, 2) }
 }
 
+// Compact chat labels for our tool calls (see the execute.after hook). Keeps the
+// raw args — above all `complete_task`'s long `evidence` — out of the chat.
+const TOOL_TITLES: Record<string, string> = {
+  target_create: "🎯 Checklist criado",
+  add_task: "＋ Tarefa adicionada",
+  complete_task: "✓ Tarefa concluída",
+  block_task: "✗ Tarefa bloqueada",
+  get_checklist: "☰ Checklist",
+  clear_checklist: "✗ Checklist removido",
+}
+
+/** "done/total" pulled from a tool result's JSON, or undefined if absent. */
+function progressFromResult(result: { output?: string; content?: string | unknown[] }): string | undefined {
+  const raw = typeof result.output === "string" ? result.output : typeof result.content === "string" ? result.content : undefined
+  if (!raw) return undefined
+  try {
+    const parsed = JSON.parse(raw) as { checklist?: { tasks?: { status?: string }[] } }
+    const tasks = parsed.checklist?.tasks
+    if (!Array.isArray(tasks) || tasks.length === 0) return undefined
+    const done = tasks.filter((t) => t.status === "done").length
+    return `${done}/${tasks.length}`
+  } catch {
+    return undefined
+  }
+}
+
 // ---- Command templates -----------------------------------------------------
 
-// Kept short on purpose: whatever goes here is shown as the user's prompt, so
-// it must read like a natural request, not a leaked meta-instruction. The
-// detailed "how" lives in the target_create tool description (the model reads
-// it). Each task should be a short title; completion criteria stay with the
-// model and are enforced via complete_task.
-const TEMPLATE_TARGET = [
-  "$ARGUMENTS",
-  "",
-  "(Monte um checklist-objetivo para isto com a tool `target_create` — tarefas curtas e verificáveis, ou `markdownPath` se eu apontei um .md — e comece a primeira.)",
-].join("\n")
+// Whatever goes here is shown verbatim as the user's prompt in the chat, so it
+// is ONLY the user's own words — no meta-instruction. The "how" (call
+// target_create, split into tasks, start the first one) is injected into the
+// system prompt by the context hook via buildTargetKickoff(), so it never
+// leaks into the visible conversation.
+const TEMPLATE_TARGET = "$ARGUMENTS"
 
 // ---- Tools -----------------------------------------------------------------
 
@@ -241,7 +282,7 @@ function buildTools(
       input: obj(
         {
           id: { type: "string", description: "ID da tarefa (ex.: t1a2b3c4) ou a posição (ex.: '3'). Use get_checklist se não souber." },
-          evidence: { type: "string", description: "Evidência concreta e verificável da conclusão." },
+          evidence: { type: "string", description: "Evidência concreta e verificável em UMA linha curta e objetiva (até ~160 caracteres): o fato que comprova a conclusão (saída de comando, caminho+trecho de arquivo, resultado de teste, resposta real). Não escreva parágrafos nem repita o plano." },
         },
         ["id", "evidence"],
       ),
@@ -334,12 +375,30 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
 
   const lastAgentBySession = new Map<string, string>()
   const continuationInFlight = new Set<string>()
+  // Sessions where `/target` was just invoked but no checklist exists yet.
+  // The context hook injects the "call target_create" kickoff for these until
+  // a checklist is actually created, keeping that instruction out of the chat.
+  const pendingTargetBySession = new Set<string>()
   let disposed = false
 
   // Tools
   await context.tool.transform((draft) => {
     for (const t of buildTools({ maxAutoTurns }, lastAgentBySession)) draft.add(t)
   })
+
+  // Give our tool calls a short, clean header in the chat. Without this, the TUI
+  // builds the collapsed tool-call label from the raw args — so `complete_task`
+  // dumped the entire `evidence` string into the conversation. We overwrite
+  // `result.title` (the same mutable field the goal plugin uses for ACP plan
+  // metadata) with a compact label, optionally annotated with done/total.
+  if (context.tool.hook) {
+    await context.tool.hook("execute.after", (input: ToolExecuteAfter) => {
+      const label = TOOL_TITLES[input.tool ?? ""]
+      if (!label || !input.result || typeof input.result !== "object") return
+      const prog = progressFromResult(input.result)
+      input.result.title = prog ? `${label} · ${prog}` : label
+    })
+  }
 
   // Commands (/target, /add_goal) — skip names already defined elsewhere.
   let existing = new Set<string>()
@@ -357,6 +416,9 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
         description: "Transforma um pedido (ou um checklist .md) em objetivo rastreado",
         execute: async (input) => {
           const args = (input.prompt?.text ?? "").trim()
+          // Mark the session so the context hook injects the kickoff instruction
+          // (into the system prompt, not the chat) on this turn.
+          pendingTargetBySession.add(input.sessionID)
           await context.session.prompt({
             sessionID: input.sessionID,
             text: TEMPLATE_TARGET.replaceAll("$ARGUMENTS", args),
@@ -406,7 +468,15 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
     const sid = sc.sessionID
     if (!sid || !Array.isArray(sc.system)) return
     const cl = await getChecklist(sid)
-    if (cl && cl.status === "active") sc.system.push({ type: "text", text: buildSystemRules(cl) })
+    if (cl) {
+      // A checklist now exists: the kickoff did its job (or wasn't needed).
+      pendingTargetBySession.delete(sid)
+      if (cl.status === "active") sc.system.push({ type: "text", text: buildSystemRules(cl) })
+    } else if (pendingTargetBySession.has(sid)) {
+      // `/target` was invoked but the model hasn't called target_create yet:
+      // nudge it, invisibly (system prompt only).
+      sc.system.push({ type: "text", text: buildTargetKickoff() })
+    }
   }) as (arg: never) => Promise<void>)
 
   // Track the owning agent so continuations stay on the same agent.

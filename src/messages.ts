@@ -88,10 +88,26 @@ export function buildSystemRules(cl: Checklist): string {
     "Regras obrigatórias enquanto este checklist estiver ativo:",
     "- Trabalhe UMA tarefa por vez, na ordem, começando pela primeira pendente (▸ ou ☐).",
     "- Uma tarefa só é dada como concluída chamando a tool `complete_task`, e SOMENTE com evidência concreta e verificável (saída de comando, trecho de arquivo, resultado de teste, resposta HTTP real). Afirmar \"feito\"/\"pronto\" NÃO é evidência.",
+    "- A `evidence` deve ser UMA linha curta (até ~160 caracteres), não um parágrafo: só o fato que comprova. O detalhamento vai na resposta ao usuário, não dentro da tool.",
     "- NÃO declare o objetivo final terminado enquanto houver qualquer tarefa pendente.",
     "- Se uma tarefa estiver realmente bloqueada, chame `block_task` com o motivo e siga para a próxima possível — não a marque como concluída.",
     "- Se descobrir trabalho novo necessário, chame `add_task` em vez de ignorá-lo.",
     "- Use `get_checklist` sempre que precisar reconferir o estado e os IDs das tarefas.",
+  ].join("\n")
+}
+
+/**
+ * Injected into the system prompt (NOT the chat) right after `/target`, while
+ * the session still has no checklist. Keeps the "how" out of the visible
+ * conversation: the user only sees their own request, the model reads this.
+ */
+export function buildTargetKickoff(): string {
+  return [
+    "[Checklist-to-Goal — iniciar objetivo]",
+    "O usuário acabou de pedir (na última mensagem) para transformar o pedido em um objetivo rastreado por checklist.",
+    "- Quebre esse pedido em tarefas curtas, concretas e verificáveis, em ordem.",
+    "- Chame a tool `target_create` com `objective` + `tasks` (cada uma com `title` curto e `description` objetiva). Se o pedido apontar para um arquivo .md com itens \"- [ ]\", passe `markdownPath` em vez de `tasks`.",
+    "- Em seguida comece pela primeira tarefa. Não declare o objetivo concluído enquanto houver tarefas pendentes.",
   ].join("\n")
 }
 
