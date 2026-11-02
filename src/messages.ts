@@ -14,11 +14,13 @@ export const MESSAGES = {
   showCommandDesc: "Mostra o checklist atual da sessão",
 }
 
+// Single-width glyphs: wide glyphs (☑/⚠) visually swallow the following space,
+// and `▸` collided with the expand arrow. ✓ ● ○ ✗ stay one cell wide.
 const SYMBOL: Record<Task["status"], string> = {
-  done: "☑",
-  active: "▸",
-  pending: "☐",
-  blocked: "⚠",
+  done: "✓",
+  active: "●",
+  pending: "○",
+  blocked: "✗",
 }
 
 export function taskSymbol(status: Task["status"]): string {
