@@ -39,25 +39,31 @@ the task until it is done**, never declaring completion without evidence.
 
 ### Local (from the source, without publishing)
 
-Reference the package directory in the `plugin` array with a `file:` spec.
+Reference the package directory in the `plugins` array with a `file:` spec.
 OpenCode loads both halves (server + TUI) through the `package.json` `exports`,
 just like an npm package.
 
 ```jsonc
 {
-  "plugin": [
+  "plugins": [
     "file:C:/Claude/Checklist-to-Goal"
     // ...other plugins
   ]
 }
 ```
 
-With options:
+With options, use the **object form** (`{ "package", "options" }`). OpenCode V2
+rejects the old V1 tuple `["pkg", { … }]` with
+`configuration normalization diagnostic … skipped malformed recognized value`,
+and the plugin is silently left unloaded:
 
 ```jsonc
 {
-  "plugin": [
-    ["file:C:/Claude/Checklist-to-Goal", { "max_auto_turns": 200, "max_no_progress": 8, "language": "en" }]
+  "plugins": [
+    {
+      "package": "file:C:/Claude/Checklist-to-Goal",
+      "options": { "max_auto_turns": 200, "max_no_progress": 8, "language": "en" }
+    }
   ]
 }
 ```
@@ -70,7 +76,7 @@ With options:
 The package is on npm, so the name is enough:
 
 ```jsonc
-{ "plugin": ["checklist-to-goal"] }
+{ "plugins": ["checklist-to-goal"] }
 ```
 
 Or via the OpenCode CLI:
@@ -83,16 +89,20 @@ To run it in Brazilian Portuguese, pass the `language` option:
 
 ```jsonc
 {
-  "plugin": [
-    ["checklist-to-goal", { "language": "pt" }]
+  "plugins": [
+    { "package": "checklist-to-goal", "options": { "language": "pt" } }
   ]
 }
 ```
 
-> The `plugin` array resolves plain names **through the npm registry** — that is
+> The `plugins` array resolves plain names **through the npm registry** — that is
 > why local use needs the `file:` prefix. Dropping the files into
 > `~/.config/opencode/plugins/` also works, but requires bundling each half into
 > a single file (relative imports do not resolve there); `file:` avoids that.
+>
+> Config lives in `~/.config/opencode/opencode.jsonc` (global) or
+> `opencode.json(c)` / `.opencode/opencode.json(c)` (project). The field was
+> called `plugin` (singular) in OpenCode V1; V2 renamed it to `plugins`.
 
 | Option            | Default | What it does |
 |-------------------|:-------:|--------------|
