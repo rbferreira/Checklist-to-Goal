@@ -1,7 +1,7 @@
 {
   "name": "checklist-to-goal",
-  "version": "0.1.0",
-  "description": "OpenCode plugin: turn a request (or a Markdown checklist) into a locked, evidence-gated goal with a live sidebar checklist and a progress bar.",
+  "version": "0.2.0",
+  "description": "OpenCode plugin: turn a request (or a Markdown checklist) into a locked, evidence-gated goal with a live sidebar checklist and a progress bar. English/pt-BR.",
   "keywords": [
     "opencode",
     "opencode-plugin",

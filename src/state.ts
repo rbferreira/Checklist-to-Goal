@@ -10,6 +10,9 @@ import { join, dirname } from "node:path"
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises"
 import { randomUUID } from "node:crypto"
 
+/** UI / prompt language. English is the default; pt-BR is opt-in via config. */
+export type Lang = "en" | "pt"
+
 export type TaskStatus = "pending" | "active" | "done" | "blocked"
 
 export interface Task {
@@ -61,6 +64,8 @@ export interface Checklist {
   lastContinuationAt: number | null
   /** Agent that owns the session, so continuations keep the same agent. */
   lastAgent?: string | null
+  /** Language the server rendered this checklist in, so the TUI matches it. */
+  lang?: Lang
 }
 
 export interface StateFile {

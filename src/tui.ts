@@ -17,8 +17,8 @@ import type { TuiCommand, TuiPlugin, TuiPluginApi } from "@opencode-ai/plugin/tu
 import { createElement, insert, setProp } from "@opentui/solid"
 import { createSignal, onCleanup } from "solid-js"
 
-import { type Checklist, getChecklist, progress, progressBar, taskDescription, taskTitle } from "./state"
-import { MESSAGES, shortTitle, taskSymbol, truncate } from "./messages"
+import { type Checklist, type Lang, getChecklist, progress, progressBar, taskDescription, taskTitle } from "./state"
+import { shortTitle, taskSymbol, truncate, ui, resolveLang } from "./messages"
 
 type ElementChild = string | number | boolean | null | undefined | object | (() => ElementChild)
 
@@ -83,9 +83,10 @@ function createExpandController(): ExpandController {
  * with no description shows no arrow. Click anywhere on the row to toggle.
  */
 function checklistBox(cl: Checklist, pal: Palette, ctrl: ExpandController) {
+  const u = ui(resolveLang(cl.lang))
   const { done, total, ratio, pct } = progress(cl)
   const children: ElementChild[] = [
-    text({ fg: cl.status === "complete" ? pal.success : pal.text }, [MESSAGES.sidebarTitle]),
+    text({ fg: cl.status === "complete" ? pal.success : pal.text }, [u.sidebarTitle]),
     text({ fg: cl.status === "complete" ? pal.success : pal.primary }, [`${progressBar(ratio, 12)} ${done}/${total} · ${pct}%`]),
     text({ fg: pal.muted }, [truncate(cl.objective, 64)]),
     text({}, [" "]),
@@ -162,6 +163,13 @@ function usePolledCurrentChecklist(getSessionID: () => string | undefined) {
 
 // --- V1 TUI (api.slots.register) --------------------------------------------
 
+/** Best-effort language for the V1 host: read a `language` option if the api
+ * happens to expose one, else English. */
+function resolveLangFromApi(api: TuiPluginApi): Lang {
+  const opts = (api as unknown as { options?: { language?: unknown }; config?: { language?: unknown } }) ?? {}
+  return resolveLang(opts.options?.language ?? opts.config?.language)
+}
+
 function currentSessionIDV1(api: TuiPluginApi): string | undefined {
   const route = api.route?.current
   if (!route || route.name !== "session") return undefined
@@ -235,6 +243,9 @@ function registerCommandV1(api: TuiPluginApi, command: TuiCommand) {
 
 const tui: TuiPlugin = async (api) => {
   const ctrl = createExpandController()
+  // V1 hosts expose no plugin options here, so command-palette labels fall back
+  // to English; the sidebar itself still localizes via each checklist's `lang`.
+  const u = ui(resolveLangFromApi(api))
   const slots = api.slots as unknown as {
     register?: (plugin: { order?: number; slots: Record<string, (ctx: unknown, props: Record<string, unknown>) => unknown> }) => unknown
   }
@@ -253,21 +264,21 @@ const tui: TuiPlugin = async (api) => {
   })
 
   registerCommandV1(api, {
-    title: MESSAGES.showCommandTitle,
+    title: u.showCommandTitle,
     value: "checklist.show",
-    category: MESSAGES.sidebarTitle,
-    description: MESSAGES.showCommandDesc,
+    category: u.sidebarTitle,
+    description: u.showCommandDesc,
     onSelect: () => {
       const sid = currentSessionIDV1(api)
       void (async () => {
         const c = sid ? await getChecklist(sid) : null
         if (!c) {
-          api.ui.toast({ title: MESSAGES.sidebarTitle, message: MESSAGES.noActive, variant: "info" })
+          api.ui.toast({ title: u.sidebarTitle, message: u.noActive, variant: "info" })
           return
         }
         const { done, total, pct } = progress(c)
         api.ui.toast({
-          title: MESSAGES.sidebarTitle,
+          title: u.sidebarTitle,
           message: `${c.objective} — ${done}/${total} (${pct}%)`,
           variant: c.status === "complete" ? "success" : "info",
           duration: 4000,

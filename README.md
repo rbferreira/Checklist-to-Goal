@@ -1,138 +1,153 @@
 # Checklist-to-Goal
 
-Plugin para [OpenCode](https://opencode.ai) que transforma um pedido — ou um
-checklist em Markdown — em um **objetivo rastreado**, com **checklist visual na
-barra lateral**, **barra de progresso** e um mecanismo que **mantém o modelo
-preso na tarefa até terminar**, sem declarar conclusão sem evidência.
+A plugin for [OpenCode](https://opencode.ai) that turns a request — or a
+Markdown checklist — into a **tracked goal**, with a **live checklist in the
+sidebar**, a **progress bar**, and a mechanism that **keeps the model locked on
+the task until it is done**, never declaring completion without evidence.
 
-> Inspirado na ideia do `@prevalentware/opencode-goal-plugin`, mas com o
-> checklist e as tarefas como cidadãos de primeira classe: você vê cada item,
-> o progresso e a tarefa atual o tempo todo.
+> Inspired by the idea behind `@prevalentware/opencode-goal-plugin`, but with the
+> checklist and its tasks as first-class citizens: you see every item, the
+> progress, and the current task the whole time.
 
-## O que ele faz
+> 🌍 **Language:** the UI and the prompts default to **English**. Brazilian
+> Portuguese is available via the `language: "pt"` option (see
+> [Installation](#installation)). / *A interface e os prompts podem ser usados
+> em português do Brasil com a opção `language: "pt"`.*
 
-- **`/target <contexto>`** — pega o contexto do pedido, vira um objetivo e o
-  quebra em tarefas concretas e verificáveis. Se o contexto apontar para um
-  arquivo `.md` com itens `- [ ]`, ele usa esses itens como tarefas.
-- **`/add_goal <tarefa>`** — acrescenta uma tarefa ao checklist ativo (aceita
-  "Título - descrição"). Determinístico: não aciona o modelo.
-- **`/target_cancel`** — cancela e remove o checklist ativo da sessão.
-- **Checklist na barra lateral** (`sidebar_content`) — objetivo, barra de
-  progresso e todos os itens com estado e cor: `✓` feito (verde), `●` em
-  andamento, `○` pendente (amarelo), `✗` bloqueado. Clique num item para abrir
-  ou fechar a descrição; a tarefa ativa abre sozinha.
-- **Badge de progresso compacto** (`session_prompt_right`) — `C2G ██████░░ 60%`
-  à direita da caixa de input, fora do indicador de "trabalhando".
-- **Trava de foco** — quando a sessão fica ociosa e ainda há tarefas pendentes,
-  o plugin injeta um "continue" automático para o modelo seguir, até concluir
-  tudo ou atingir os limites configurados.
-- **Conclusão só com evidência** — uma tarefa só é marcada como concluída pela
-  tool `complete_task`, e apenas com evidência concreta (saída de comando,
-  trecho de arquivo, resultado de teste, resposta real). "Feito" não basta.
+## What it does
 
-## Instalação
+- **`/target <context>`** — takes the context of the request, turns it into a
+  goal, and breaks it into concrete, verifiable tasks. If the context points to
+  a `.md` file with `- [ ]` items, it uses those items as the tasks.
+- **`/add_goal <task>`** — appends a task to the active checklist (accepts
+  "Title - description"). Deterministic: it does not invoke the model.
+- **`/target_cancel`** — cancels and removes the session's active checklist.
+- **Checklist in the sidebar** (`sidebar_content`) — objective, progress bar,
+  and every item with its state and color: `✓` done (green), `●` in progress,
+  `○` pending (yellow), `✗` blocked. Click an item to open or close its
+  description; the active task opens on its own.
+- **Compact progress badge** (`session_prompt_right`) — `C2G ██████░░ 60%` to
+  the right of the input box, out of the way of the "working" indicator.
+- **Focus lock** — when the session goes idle and there are still pending tasks,
+  the plugin injects an automatic "continue" so the model keeps going, until
+  everything is done or the configured limits are reached.
+- **Completion only with evidence** — a task is only marked done through the
+  `complete_task` tool, and only with concrete evidence (command output, a file
+  excerpt, a test result, a real response). "Done" is not enough.
 
-### Local (a partir do código, sem publicar)
+## Installation
 
-Referencie o diretório do pacote no array `plugin` com um spec `file:`. O
-OpenCode carrega as duas metades (servidor + TUI) via os `exports` do
-`package.json`, igual a um pacote npm.
+### Local (from the source, without publishing)
+
+Reference the package directory in the `plugin` array with a `file:` spec.
+OpenCode loads both halves (server + TUI) through the `package.json` `exports`,
+just like an npm package.
 
 ```jsonc
 {
   "plugin": [
     "file:C:/Claude/Checklist-to-Goal"
-    // ...outros plugins
+    // ...other plugins
   ]
 }
 ```
 
-Com opções:
+With options:
 
 ```jsonc
 {
   "plugin": [
-    ["file:C:/Claude/Checklist-to-Goal", { "max_auto_turns": 200, "max_no_progress": 8 }]
+    ["file:C:/Claude/Checklist-to-Goal", { "max_auto_turns": 200, "max_no_progress": 8, "language": "en" }]
   ]
 }
 ```
 
-> Obs.: specs `file:` não passam pela checagem de atualização do OpenCode (um
-> WARN inofensivo nos logs). Para editar e recarregar, reinicie o OpenCode.
+> Note: `file:` specs skip OpenCode's update check (a harmless WARN in the logs).
+> To edit and reload, restart OpenCode.
 
-### Publicado no npm
+### Published on npm
 
-Depois de `npm publish`, basta o nome:
+The package is on npm, so the name is enough:
 
 ```jsonc
 { "plugin": ["checklist-to-goal"] }
 ```
 
-Ou pela CLI do OpenCode:
+Or via the OpenCode CLI:
 
 ```sh
 opencode plugin add checklist-to-goal
 ```
 
-> O array `plugin` resolve nomes simples **pelo registry do npm** — por isso o
-> uso local precisa do prefixo `file:`. Soltar os arquivos em
-> `~/.config/opencode/plugins/` também funciona, mas exige empacotar cada
-> metade num arquivo único (os imports relativos não se resolvem lá); o
-> `file:` evita isso.
+To run it in Brazilian Portuguese, pass the `language` option:
 
-| Opção            | Padrão | O que faz |
-|------------------|:------:|-----------|
-| `max_auto_turns` | `200`  | Máximo de continuações automáticas por objetivo. `null` = ilimitado. |
-| `max_no_progress`| `8`    | Após N ciclos ociosos sem concluir nenhuma tarefa nova, para de auto-continuar (evita queimar turnos). |
+```jsonc
+{
+  "plugin": [
+    ["checklist-to-goal", { "language": "pt" }]
+  ]
+}
+```
 
-## Como funciona (arquitetura)
+> The `plugin` array resolves plain names **through the npm registry** — that is
+> why local use needs the `file:` prefix. Dropping the files into
+> `~/.config/opencode/plugins/` also works, but requires bundling each half into
+> a single file (relative imports do not resolve there); `file:` avoids that.
 
-O plugin tem duas metades (API V2 do OpenCode: `export default { id, setup }`),
-carregadas a partir do mesmo pacote via `exports` (`.` → servidor, `./tui` →
-TUI):
+| Option            | Default | What it does |
+|-------------------|:-------:|--------------|
+| `language`        | `"en"`  | UI and prompt language: `"en"` (English) or `"pt"` (Brazilian Portuguese). |
+| `max_auto_turns`  | `200`   | Maximum automatic continuations per goal. `null` = unlimited. |
+| `max_no_progress` | `8`     | After N idle cycles without completing any new task, stop auto-continuing (avoids burning turns). |
 
-- **`src/server.ts`** (servidor) — no `setup(context)`:
-  - `context.tool.transform` registra as tools;
-  - `context.command.transform` injeta `/target` e `/add_goal`;
-  - `context.session.hook("context")` injeta o checklist + regras no system
-    prompt a cada turno;
-  - `context.session.hook("prompt")` rastreia o agente da sessão;
-  - `context.event.subscribe` escuta `session.idle` e, havendo tarefa pendente,
-    chama `context.session.prompt(...)` para a continuação sintética.
-- **`src/tui.ts`** (interface) — `setup(context)` registra os slots de UI
-  (`context.ui.slot`) e desenha a sidebar e a barra de progresso lendo o estado
-  compartilhado.
+## How it works (architecture)
 
-As duas metades rodam em processos diferentes, então o estado vive em um
-arquivo JSON e a TUI o relê a cada 1s:
+The plugin has two halves (OpenCode V2 API: `export default { id, setup }`),
+loaded from the same package through `exports` (`.` → server, `./tui` → TUI):
+
+- **`src/server.ts`** (server) — in `setup(context)`:
+  - `context.tool.transform` registers the tools;
+  - `context.command.transform` injects `/target` and `/add_goal`;
+  - `context.session.hook("context")` injects the checklist + rules into the
+    system prompt each turn;
+  - `context.session.hook("prompt")` tracks the session's agent;
+  - `context.event.subscribe` listens for `session.idle` and, when a task is
+    pending, calls `context.session.prompt(...)` for the synthetic continuation.
+- **`src/tui.ts`** (interface) — `setup(context)` registers the UI slots
+  (`context.ui.slot`) and draws the sidebar and the progress bar by reading the
+  shared state.
+
+The two halves run in different processes, so the state lives in a JSON file
+that the TUI re-reads every second:
 
 ```
 %APPDATA%\checklist-to-goal\state.json          (Windows)
 $XDG_DATA_HOME/checklist-to-goal/state.json      (Linux/macOS)
 ```
 
-Sobrescreva o caminho com a env var `CHECKLIST_TO_GOAL_STATE_PATH`.
+Override the path with the `CHECKLIST_TO_GOAL_STATE_PATH` env var.
 
-## Tools (chamadas pelo modelo)
+## Tools (called by the model)
 
-| Tool              | Função |
-|-------------------|--------|
-| `target_create`   | Cria o objetivo + tarefas (de `tasks[]` ou de um `markdownPath`). |
-| `add_task`        | Acrescenta uma tarefa. |
-| `complete_task`   | Conclui uma tarefa — exige `evidence` concreta. |
-| `block_task`      | Marca uma tarefa como bloqueada, com motivo. |
-| `get_checklist`   | Retorna o estado atual (objetivo, tarefas, IDs, progresso). |
-| `clear_checklist` | Remove o checklist da sessão. |
+| Tool              | Purpose |
+|-------------------|---------|
+| `target_create`   | Creates the goal + tasks (from `tasks[]` or a `markdownPath`). |
+| `add_task`        | Appends a task. |
+| `complete_task`   | Completes a task — requires concrete `evidence`. |
+| `block_task`      | Marks a task as blocked, with a reason. |
+| `get_checklist`   | Returns the current state (objective, tasks, IDs, progress). |
+| `clear_checklist` | Removes the session's checklist. |
 
-## Notas
+## Notes
 
-- **Posição do badge de progresso:** usamos o slot `session_prompt_right` (à
-  direita do prompt), de propósito fora de `app_bottom` para não brigar com o
-  indicador de "trabalhando". O slot é trocável em `src/tui.ts`.
-- **Sem build:** o plugin é TypeScript puro; o OpenCode transpila no load.
-- **Compatibilidade:** suporta as duas gerações da API de TUI do OpenCode
-  (`api.slots.register` e `context.ui.slot`).
+- **Progress-badge position:** we use the `session_prompt_right` slot (to the
+  right of the prompt), deliberately off `app_bottom` so it does not fight the
+  "working" indicator. The slot is swappable in `src/tui.ts`.
+- **No build step:** the plugin is plain TypeScript; OpenCode transpiles it at
+  load time.
+- **Compatibility:** it supports both generations of OpenCode's TUI API
+  (`api.slots.register` and `context.ui.slot`).
 
-## Licença
+## License
 
 MIT © Rafael Ferreira

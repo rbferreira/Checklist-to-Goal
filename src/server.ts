@@ -16,6 +16,7 @@
 
 import {
   type Checklist,
+  type Lang,
   type Task,
   deleteChecklist,
   findTask,
@@ -27,7 +28,15 @@ import {
   saveChecklist,
   taskTitle,
 } from "./state"
-import { buildContinuation, buildSystemRules, buildTargetKickoff, renderChecklistText } from "./messages"
+import {
+  type ToolStrings,
+  buildContinuation,
+  buildSystemRules,
+  buildTargetKickoff,
+  renderChecklistText,
+  resolveLang,
+  toolStrings,
+} from "./messages"
 import { parseMarkdownChecklist } from "./parse"
 
 const DEFAULT_MAX_AUTO_TURNS = 200
@@ -134,17 +143,6 @@ function jsonContent(cl: Checklist | null, extra: Record<string, unknown> = {}):
   return { content: JSON.stringify({ checklist: cl, ...extra }, null, 2) }
 }
 
-// Compact chat labels for our tool calls (see the execute.after hook). Keeps the
-// raw args — above all `complete_task`'s long `evidence` — out of the chat.
-const TOOL_TITLES: Record<string, string> = {
-  target_create: "🎯 Checklist criado",
-  add_task: "＋ Tarefa adicionada",
-  complete_task: "✓ Tarefa concluída",
-  block_task: "✗ Tarefa bloqueada",
-  get_checklist: "☰ Checklist",
-  clear_checklist: "✗ Checklist removido",
-}
-
 /** "done/total" pulled from a tool result's JSON, or undefined if absent. */
 function progressFromResult(result: { output?: string; content?: string | unknown[] }): string | undefined {
   const raw = typeof result.output === "string" ? result.output : typeof result.content === "string" ? result.content : undefined
@@ -172,29 +170,29 @@ const TEMPLATE_TARGET = "$ARGUMENTS"
 // ---- Tools -----------------------------------------------------------------
 
 function buildTools(
-  defaults: { maxAutoTurns: number | null },
+  defaults: { maxAutoTurns: number | null; lang: Lang },
+  ts: ToolStrings,
   lastAgentBySession: Map<string, string>,
 ): ToolDef[] {
   return [
     {
       name: "target_create",
-      description:
-        "Cria um objetivo rastreado por checklist para a sessão atual. Informe `objective` + `tasks` (cada tarefa com um `title` curto e uma `description` objetiva, em ordem), OU `markdownPath` apontando para um arquivo .md com itens de checklist ('- [ ] ...'). Substitui qualquer checklist anterior da sessão.",
+      description: ts.targetCreateDesc,
       input: obj({
-        objective: { type: "string", description: "Objetivo final, claro e único." },
+        objective: { type: "string", description: ts.objectiveParam },
         tasks: {
           type: "array",
-          description: "Tarefas em ordem de execução; cada uma com um título curto e uma descrição objetiva.",
+          description: ts.tasksParam,
           items: {
             type: "object",
             properties: {
-              title: { type: "string", description: "Título curto e imperativo (≤ ~6 palavras)." },
-              description: { type: "string", description: "O que fazer / critério objetivo de conclusão (conciso)." },
+              title: { type: "string", description: ts.taskTitleParam },
+              description: { type: "string", description: ts.taskDescParam },
             },
             required: ["title"],
           },
         },
-        markdownPath: { type: "string", description: "Caminho de um .md com itens '- [ ]' para usar como tarefas." },
+        markdownPath: { type: "string", description: ts.markdownPathParam },
       }),
       options: { codemode: false },
       async execute(args, ctx) {
@@ -214,7 +212,7 @@ function buildTools(
             tasks = parsed.map((line) => newTask(line))
             source = "markdown"
           }
-          if (!objective) objective = `Concluir checklist de ${markdownPath}`
+          if (!objective) objective = ts.markdownObjective(markdownPath)
         } else {
           const rawTasks = Array.isArray(args.tasks) ? (args.tasks as unknown[]) : []
           tasks = rawTasks
@@ -228,9 +226,9 @@ function buildTools(
             .filter((t) => taskTitle(t).length > 0)
         }
 
-        if (!objective) objective = "Objetivo sem título"
+        if (!objective) objective = ts.untitledObjective
         if (tasks.length === 0) {
-          return { content: "Nenhuma tarefa fornecida. Passe `tasks` (com title/description) ou um `markdownPath` válido com itens '- [ ]'." }
+          return { content: ts.noTasks }
         }
 
         const nowTs = Date.now()
@@ -249,40 +247,40 @@ function buildTools(
           lastDoneCount: 0,
           lastContinuationAt: null,
           lastAgent: lastAgentBySession.get(ctx.sessionID) ?? null,
+          lang: defaults.lang,
         }
         await saveChecklist(cl)
         return jsonContent(cl, {
-          message: `Checklist criado com ${tasks.length} tarefa(s). Comece pela primeira: "${tasks[0] ? taskTitle(tasks[0]) : ""}".`,
+          message: ts.created(tasks.length, tasks[0] ? taskTitle(tasks[0]) : ""),
         })
       },
     },
 
     {
       name: "add_task",
-      description: "Adiciona uma nova tarefa ao final do checklist ativo da sessão.",
-      input: obj({ text: { type: "string", description: "Descrição da tarefa, concreta e verificável." } }, ["text"]),
+      description: ts.addTaskDesc,
+      input: obj({ text: { type: "string", description: ts.addTaskTextParam } }, ["text"]),
       options: { codemode: false },
       async execute(args, ctx) {
         const text = str(args, "text") ?? ""
         const cl = await getChecklist(ctx.sessionID)
-        if (!cl) return { content: "Nenhum checklist ativo nesta sessão. Crie um com target_create." }
+        if (!cl) return { content: ts.noChecklistHint }
         const t = newTask(text)
         cl.tasks.push(t)
         if (cl.status === "complete") cl.status = "active"
         reconcileActive(cl)
         await saveChecklist(cl)
-        return jsonContent(cl, { message: `Tarefa adicionada [${t.id}]: ${taskTitle(t)}` })
+        return jsonContent(cl, { message: ts.taskAdded(t.id, taskTitle(t)) })
       },
     },
 
     {
       name: "complete_task",
-      description:
-        "Marca uma tarefa como concluída. EXIGE evidência concreta e verificável (saída de comando, trecho de arquivo, resultado de teste, resposta real). Sem evidência suficiente, a conclusão é recusada.",
+      description: ts.completeTaskDesc,
       input: obj(
         {
-          id: { type: "string", description: "ID da tarefa (ex.: t1a2b3c4) ou a posição (ex.: '3'). Use get_checklist se não souber." },
-          evidence: { type: "string", description: "Evidência concreta e verificável em UMA linha curta e objetiva (até ~160 caracteres): o fato que comprova a conclusão (saída de comando, caminho+trecho de arquivo, resultado de teste, resposta real). Não escreva parágrafos nem repita o plano." },
+          id: { type: "string", description: ts.completeIdParam },
+          evidence: { type: "string", description: ts.evidenceParam },
         },
         ["id", "evidence"],
       ),
@@ -291,14 +289,12 @@ function buildTools(
         const id = str(args, "id") ?? ""
         const evidence = str(args, "evidence") ?? ""
         const cl = await getChecklist(ctx.sessionID)
-        if (!cl) return { content: "Nenhum checklist ativo nesta sessão. Crie um com target_create." }
+        if (!cl) return { content: ts.noChecklistHint }
         const task = findTask(cl, id)
-        if (!task) return { content: `Tarefa "${id}" não encontrada. Chame get_checklist para ver os IDs.` }
+        if (!task) return { content: ts.taskNotFoundHint(id) }
         const ev = evidence.trim()
         if (ev.length < MIN_EVIDENCE_LEN || WEAK_EVIDENCE.test(ev)) {
-          return {
-            content: `Evidência insuficiente para concluir "${taskTitle(task)}". Forneça prova concreta (saída de comando, trecho de arquivo, resultado de teste ou resposta real) — não apenas "feito".`,
-          }
+          return { content: ts.weakEvidence(taskTitle(task)) }
         }
         task.status = "done"
         task.evidence = ev
@@ -309,20 +305,16 @@ function buildTools(
         await saveChecklist(cl)
         const nextActive = cl.tasks.find((t) => t.status === "active")
         return jsonContent(cl, {
-          message:
-            cl.status === "complete"
-              ? "🎉 Todas as tarefas concluídas com evidência. Objetivo alcançado."
-              : `Tarefa concluída. Próxima: "${nextActive ? taskTitle(nextActive) : "—"}". Continue agora.`,
+          message: cl.status === "complete" ? ts.allDone : ts.completedNext(nextActive ? taskTitle(nextActive) : "—"),
         })
       },
     },
 
     {
       name: "block_task",
-      description:
-        "Marca uma tarefa como bloqueada, com o motivo. NÃO conta como concluída; use quando a tarefa não puder avançar agora.",
+      description: ts.blockTaskDesc,
       input: obj(
-        { id: { type: "string", description: "ID da tarefa ou sua posição." }, reason: { type: "string", description: "Motivo do bloqueio." } },
+        { id: { type: "string", description: ts.blockIdParam }, reason: { type: "string", description: ts.blockReasonParam } },
         ["id", "reason"],
       ),
       options: { codemode: false },
@@ -330,37 +322,37 @@ function buildTools(
         const id = str(args, "id") ?? ""
         const reason = str(args, "reason") ?? ""
         const cl = await getChecklist(ctx.sessionID)
-        if (!cl) return { content: "Nenhum checklist ativo nesta sessão." }
+        if (!cl) return { content: ts.noChecklist }
         const task = findTask(cl, id)
-        if (!task) return { content: `Tarefa "${id}" não encontrada.` }
+        if (!task) return { content: ts.taskNotFound(id) }
         task.status = "blocked"
         task.blocker = reason.trim()
         reconcileActive(cl)
         await saveChecklist(cl)
-        return jsonContent(cl, { message: `Tarefa [${task.id}] marcada como bloqueada.` })
+        return jsonContent(cl, { message: ts.blocked(task.id) })
       },
     },
 
     {
       name: "get_checklist",
-      description: "Retorna o checklist atual da sessão (objetivo, tarefas, IDs, progresso).",
+      description: ts.getChecklistDesc,
       input: obj({}),
       options: { codemode: false },
       async execute(_args, ctx) {
         const cl = await getChecklist(ctx.sessionID)
-        if (!cl) return { content: "Nenhum checklist ativo nesta sessão." }
-        return jsonContent(cl, { rendered: renderChecklistText(cl) })
+        if (!cl) return { content: ts.noChecklist }
+        return jsonContent(cl, { rendered: renderChecklistText(cl, defaults.lang) })
       },
     },
 
     {
       name: "clear_checklist",
-      description: "Remove o checklist da sessão atual (encerra o acompanhamento).",
+      description: ts.clearChecklistDesc,
       input: obj({}),
       options: { codemode: false },
       async execute(_args, ctx) {
         await deleteChecklist(ctx.sessionID)
-        return { content: "Checklist removido desta sessão." }
+        return { content: ts.removed }
       },
     },
   ]
@@ -372,6 +364,8 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
   const options = context.options ?? {}
   const maxAutoTurns = optionalNum(options.max_auto_turns, DEFAULT_MAX_AUTO_TURNS)
   const maxNoProgress = num(options.max_no_progress, DEFAULT_MAX_NO_PROGRESS)
+  const lang = resolveLang(options.language)
+  const ts = toolStrings(lang)
 
   const lastAgentBySession = new Map<string, string>()
   const continuationInFlight = new Set<string>()
@@ -383,7 +377,7 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
 
   // Tools
   await context.tool.transform((draft) => {
-    for (const t of buildTools({ maxAutoTurns }, lastAgentBySession)) draft.add(t)
+    for (const t of buildTools({ maxAutoTurns, lang }, ts, lastAgentBySession)) draft.add(t)
   })
 
   // Give our tool calls a short, clean header in the chat. Without this, the TUI
@@ -393,7 +387,7 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
   // metadata) with a compact label, optionally annotated with done/total.
   if (context.tool.hook) {
     await context.tool.hook("execute.after", (input: ToolExecuteAfter) => {
-      const label = TOOL_TITLES[input.tool ?? ""]
+      const label = ts.titles[input.tool ?? ""]
       if (!label || !input.result || typeof input.result !== "object") return
       const prog = progressFromResult(input.result)
       input.result.title = prog ? `${label} · ${prog}` : label
@@ -413,7 +407,7 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
     if (!existing.has("target")) {
       draft.add({
         name: "target",
-        description: "Transforma um pedido (ou um checklist .md) em objetivo rastreado",
+        description: ts.cmdTarget,
         execute: async (input) => {
           const args = (input.prompt?.text ?? "").trim()
           // Mark the session so the context hook injects the kickoff instruction
@@ -432,7 +426,7 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
     if (!existing.has("add_goal")) {
       draft.add({
         name: "add_goal",
-        description: "Adiciona uma tarefa ao checklist ativo (atualiza a sidebar; não aciona o modelo)",
+        description: ts.cmdAddGoal,
         execute: async (input) => {
           const raw = (input.prompt?.text ?? "").trim()
           if (!raw) return
@@ -455,7 +449,7 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
     if (!existing.has("target_cancel")) {
       draft.add({
         name: "target_cancel",
-        description: "Cancela e remove o checklist ativo da sessão (não aciona o modelo)",
+        description: ts.cmdTargetCancel,
         execute: async (input) => {
           await deleteChecklist(input.sessionID)
         },
@@ -471,11 +465,11 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
     if (cl) {
       // A checklist now exists: the kickoff did its job (or wasn't needed).
       pendingTargetBySession.delete(sid)
-      if (cl.status === "active") sc.system.push({ type: "text", text: buildSystemRules(cl) })
+      if (cl.status === "active") sc.system.push({ type: "text", text: buildSystemRules(cl, lang) })
     } else if (pendingTargetBySession.has(sid)) {
       // `/target` was invoked but the model hasn't called target_create yet:
       // nudge it, invisibly (system prompt only).
-      sc.system.push({ type: "text", text: buildTargetKickoff() })
+      sc.system.push({ type: "text", text: buildTargetKickoff(lang) })
     }
   }) as (arg: never) => Promise<void>)
 
@@ -515,7 +509,7 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
       const agent = cl.lastAgent ?? lastAgentBySession.get(sessionID)
       await context.session.prompt({
         sessionID,
-        text: buildContinuation(cl),
+        text: buildContinuation(cl, lang),
         ...(agent ? { agents: [{ name: agent }] } : {}),
       })
     } finally {
