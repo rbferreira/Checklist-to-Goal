@@ -1,0 +1,71 @@
+{
+  "name": "checklist-to-goal",
+  "version": "0.1.0",
+  "description": "OpenCode plugin: turn a request (or a Markdown checklist) into a locked, evidence-gated goal with a live sidebar checklist and a progress bar.",
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "checklist",
+    "goal",
+    "goal-mode",
+    "tui",
+    "slash-command",
+    "coding-agent",
+    "ai-agent"
+  ],
+  "homepage": "https://github.com/rbferreira/Checklist-to-Goal#readme",
+  "bugs": {
+    "url": "https://github.com/rbferreira/Checklist-to-Goal/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rbferreira/Checklist-to-Goal.git"
+  },
+  "license": "MIT",
+  "author": "Rafael Ferreira",
+  "type": "module",
+  "main": "./src/server.ts",
+  "exports": {
+    ".": {
+      "import": "./src/server.ts",
+      "default": "./src/server.ts"
+    },
+    "./server": {
+      "import": "./src/server.ts",
+      "default": "./src/server.ts"
+    },
+    "./tui": {
+      "import": "./src/tui.ts",
+      "default": "./src/tui.ts"
+    }
+  },
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "dependencies": {
+    "zod": "^4.6.7"
+  },
+  "peerDependencies": {
+    "@opentui/solid": ">=0.5.8",
+    "solid-js": ">=1.9.0"
+  },
+  "peerDependenciesMeta": {
+    "@opentui/solid": {
+      "optional": true
+    },
+    "solid-js": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@opencode-ai/plugin": "^1.17.1"
+  },
+  "engines": {
+    "opencode": ">=1.17.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
