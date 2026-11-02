@@ -14,13 +14,30 @@ export type TaskStatus = "pending" | "active" | "done" | "blocked"
 
 export interface Task {
   id: string
-  text: string
+  /** Short title shown in the sidebar. */
+  title?: string
+  /** Longer detail / acceptance criteria, shown when the task is expanded. */
+  description?: string
+  /** Legacy: older state stored only `text`. Read via taskTitle/taskDescription. */
+  text?: string
   status: TaskStatus
   /** Concrete, verifiable proof the task is done. Required to mark `done`. */
   evidence?: string
   /** Reason the task is blocked (when status === "blocked"). */
   blocker?: string
   completedAt?: number
+}
+
+/** The short title to display, tolerating legacy `text`-only tasks. */
+export function taskTitle(t: Task): string {
+  return (t.title ?? t.text ?? "").trim()
+}
+
+/** The expandable detail, if any (legacy `text`-only tasks surface `text`). */
+export function taskDescription(t: Task): string | undefined {
+  if (t.description && t.description.trim()) return t.description.trim()
+  if (!t.title && t.text && t.text.trim()) return t.text.trim()
+  return undefined
 }
 
 export type ChecklistStatus = "active" | "complete" | "cancelled"
@@ -108,8 +125,9 @@ export async function deleteChecklist(sessionID: string): Promise<void> {
   await writeState(state)
 }
 
-export function newTask(text: string): Task {
-  return { id: `t${randomUUID().slice(0, 8)}`, text: text.trim(), status: "pending" }
+export function newTask(title: string, description?: string): Task {
+  const d = description?.trim()
+  return { id: `t${randomUUID().slice(0, 8)}`, title: title.trim(), description: d || undefined, status: "pending" }
 }
 
 export interface Progress {

@@ -24,6 +24,7 @@ import {
   nextPending,
   progress,
   saveChecklist,
+  taskTitle,
 } from "./state"
 import { buildContinuation, buildSystemRules, renderChecklistText } from "./messages"
 import { parseMarkdownChecklist } from "./parse"
@@ -115,22 +116,15 @@ function jsonContent(cl: Checklist | null, extra: Record<string, unknown> = {}):
 
 // ---- Command templates -----------------------------------------------------
 
+// Kept short on purpose: whatever goes here is shown as the user's prompt, so
+// it must read like a natural request, not a leaked meta-instruction. The
+// detailed "how" lives in the target_create tool description (the model reads
+// it). Each task should be a short title; completion criteria stay with the
+// model and are enforced via complete_task.
 const TEMPLATE_TARGET = [
-  "O usuário quer iniciar um objetivo rastreado por checklist. Contexto do pedido:",
-  "",
   "$ARGUMENTS",
   "",
-  "Faça AGORA, nesta ordem:",
-  "1. Se o contexto apontar para um arquivo de checklist Markdown (um caminho .md, ou itens no formato \"- [ ]\"), chame a tool `target_create` passando `markdownPath` com o caminho desse arquivo (e, se útil, um `objective`).",
-  "2. Caso contrário, derive um `objective` claro e único e quebre-o em `tasks`: uma lista de tarefas concretas e VERIFICÁVEIS, cada uma com critério objetivo de conclusão, na ordem de execução. Chame `target_create` com `objective` e `tasks`.",
-  "",
-  "Depois de criar o checklist, comece imediatamente a executar a primeira tarefa. Lembre: cada tarefa só se conclui via `complete_task` com evidência concreta.",
-].join("\n")
-
-const TEMPLATE_ADD_GOAL = [
-  "Adicione uma nova tarefa ao checklist ativo chamando a tool `add_task` com o texto abaixo (não reinicie o objetivo, apenas acrescente ao final):",
-  "",
-  "$ARGUMENTS",
+  "(Monte um checklist-objetivo para isto com a tool `target_create` — tarefas curtas e verificáveis, ou `markdownPath` se eu apontei um .md — e comece a primeira.)",
 ].join("\n")
 
 // ---- Tools -----------------------------------------------------------------
@@ -143,17 +137,27 @@ function buildTools(
     {
       name: "target_create",
       description:
-        "Cria um objetivo rastreado por checklist para a sessão atual. Informe `objective` + `tasks` (lista de tarefas concretas e verificáveis em ordem), OU `markdownPath` apontando para um arquivo .md com itens de checklist ('- [ ] ...'). Substitui qualquer checklist anterior da sessão.",
+        "Cria um objetivo rastreado por checklist para a sessão atual. Informe `objective` + `tasks` (cada tarefa com um `title` curto e uma `description` objetiva, em ordem), OU `markdownPath` apontando para um arquivo .md com itens de checklist ('- [ ] ...'). Substitui qualquer checklist anterior da sessão.",
       input: obj({
         objective: { type: "string", description: "Objetivo final, claro e único." },
-        tasks: { type: "array", items: { type: "string" }, description: "Tarefas concretas e verificáveis, na ordem de execução." },
+        tasks: {
+          type: "array",
+          description: "Tarefas em ordem de execução; cada uma com um título curto e uma descrição objetiva.",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string", description: "Título curto e imperativo (≤ ~6 palavras)." },
+              description: { type: "string", description: "O que fazer / critério objetivo de conclusão (conciso)." },
+            },
+            required: ["title"],
+          },
+        },
         markdownPath: { type: "string", description: "Caminho de um .md com itens '- [ ]' para usar como tarefas." },
       }),
       options: { codemode: false },
       async execute(args, ctx) {
         let objective = (str(args, "objective") ?? "").trim()
-        const rawTasks = Array.isArray(args.tasks) ? (args.tasks as unknown[]) : []
-        let taskTexts = rawTasks.map((t) => String(t).trim()).filter(Boolean)
+        let tasks: Task[] = []
         let source: Checklist["source"] = "context"
         const markdownPath = str(args, "markdownPath")
 
@@ -165,19 +169,29 @@ function buildTools(
           const md = await readFile(abs, "utf8")
           const parsed = parseMarkdownChecklist(md)
           if (parsed.length) {
-            taskTexts = parsed
+            tasks = parsed.map((line) => newTask(line))
             source = "markdown"
           }
           if (!objective) objective = `Concluir checklist de ${markdownPath}`
+        } else {
+          const rawTasks = Array.isArray(args.tasks) ? (args.tasks as unknown[]) : []
+          tasks = rawTasks
+            .map((item) => {
+              if (typeof item === "string") return newTask(item)
+              const o = (item ?? {}) as { title?: unknown; description?: unknown }
+              const title = typeof o.title === "string" ? o.title : ""
+              const description = typeof o.description === "string" ? o.description : undefined
+              return newTask(title, description)
+            })
+            .filter((t) => taskTitle(t).length > 0)
         }
 
         if (!objective) objective = "Objetivo sem título"
-        if (taskTexts.length === 0) {
-          return { content: "Nenhuma tarefa fornecida. Passe `tasks` (lista) ou um `markdownPath` válido com itens '- [ ]'." }
+        if (tasks.length === 0) {
+          return { content: "Nenhuma tarefa fornecida. Passe `tasks` (com title/description) ou um `markdownPath` válido com itens '- [ ]'." }
         }
 
         const nowTs = Date.now()
-        const tasks: Task[] = taskTexts.map(newTask)
         if (tasks[0]) tasks[0].status = "active"
         const cl: Checklist = {
           sessionID: ctx.sessionID,
@@ -196,7 +210,7 @@ function buildTools(
         }
         await saveChecklist(cl)
         return jsonContent(cl, {
-          message: `Checklist criado com ${tasks.length} tarefa(s). Comece pela primeira: "${tasks[0]?.text}".`,
+          message: `Checklist criado com ${tasks.length} tarefa(s). Comece pela primeira: "${tasks[0] ? taskTitle(tasks[0]) : ""}".`,
         })
       },
     },
@@ -216,7 +230,7 @@ function buildTools(
         cl.tasks.push(t)
         if (cl.status === "complete") cl.status = "active"
         await saveChecklist(cl)
-        return jsonContent(cl, { message: `Tarefa adicionada [${t.id}]: ${t.text}` })
+        return jsonContent(cl, { message: `Tarefa adicionada [${t.id}]: ${taskTitle(t)}` })
       },
     },
 
@@ -242,7 +256,7 @@ function buildTools(
         const ev = evidence.trim()
         if (ev.length < MIN_EVIDENCE_LEN || WEAK_EVIDENCE.test(ev)) {
           return {
-            content: `Evidência insuficiente para concluir "${task.text}". Forneça prova concreta (saída de comando, trecho de arquivo, resultado de teste ou resposta real) — não apenas "feito".`,
+            content: `Evidência insuficiente para concluir "${taskTitle(task)}". Forneça prova concreta (saída de comando, trecho de arquivo, resultado de teste ou resposta real) — não apenas "feito".`,
           }
         }
         task.status = "done"
@@ -257,7 +271,7 @@ function buildTools(
           message:
             cl.status === "complete"
               ? "🎉 Todas as tarefas concluídas com evidência. Objetivo alcançado."
-              : "Tarefa concluída. Siga para a próxima pendente.",
+              : `Tarefa concluída. Próxima: "${nextPend ? taskTitle(nextPend) : "—"}". Continue agora.`,
         })
       },
     },
@@ -336,22 +350,43 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
     /* ignore */
   }
   await context.command.transform((draft) => {
-    const defs: { name: string; description: string; template: string }[] = [
-      { name: "target", description: "Transforma um pedido (ou um checklist .md) em objetivo rastreado com tarefas", template: TEMPLATE_TARGET },
-      { name: "add_goal", description: "Adiciona uma tarefa ao checklist ativo", template: TEMPLATE_ADD_GOAL },
-    ]
-    for (const def of defs) {
-      if (existing.has(def.name)) continue
+    // /target — precisa do modelo para quebrar o contexto em tarefas, então
+    // envia um prompt (curto e natural).
+    if (!existing.has("target")) {
       draft.add({
-        name: def.name,
-        description: def.description,
+        name: "target",
+        description: "Transforma um pedido (ou um checklist .md) em objetivo rastreado",
         execute: async (input) => {
           const args = (input.prompt?.text ?? "").trim()
           await context.session.prompt({
             sessionID: input.sessionID,
-            text: def.template.replaceAll("$ARGUMENTS", args),
+            text: TEMPLATE_TARGET.replaceAll("$ARGUMENTS", args),
             delivery: input.delivery,
           })
+        },
+      })
+    }
+    // /add_goal — determinístico: acrescenta a tarefa direto no estado, SEM
+    // acionar o modelo (nada aparece na conversa; a sidebar atualiza sozinha).
+    if (!existing.has("add_goal")) {
+      draft.add({
+        name: "add_goal",
+        description: "Adiciona uma tarefa ao checklist ativo (atualiza a sidebar; não aciona o modelo)",
+        execute: async (input) => {
+          const raw = (input.prompt?.text ?? "").trim()
+          if (!raw) return
+          const cl = await getChecklist(input.sessionID)
+          if (!cl) return // sem checklist ativo: no-op silencioso (use /target antes)
+          // "Título - descrição" (ou " — ") vira título + descrição; senão, só título.
+          const parts = raw.split(/\s+[-—]\s+/)
+          const title = (parts.shift() ?? raw).trim()
+          const description = parts.join(" - ").trim() || undefined
+          const t = newTask(title, description)
+          const hasOpen = cl.tasks.some((x) => x.status === "active" || x.status === "pending")
+          if (!hasOpen) t.status = "active"
+          cl.tasks.push(t)
+          if (cl.status === "complete") cl.status = "active"
+          await saveChecklist(cl)
         },
       })
     }
