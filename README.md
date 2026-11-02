@@ -18,10 +18,11 @@ preso na tarefa até terminar**, sem declarar conclusão sem evidência.
   "Título - descrição"). Determinístico: não aciona o modelo.
 - **`/target_cancel`** — cancela e remove o checklist ativo da sessão.
 - **Checklist na barra lateral** (`sidebar_content`) — objetivo, barra de
-  progresso e todos os itens com estado (`☑` feito, `▸` em andamento,
-  `☐` pendente, `⚠` bloqueado).
-- **Barra de progresso compacta** (`app_bottom`) — `C2G ██████░░ 60% ▸ tarefa
-  atual`, abaixo da caixa de contexto.
+  progresso e todos os itens com estado e cor: `✓` feito (verde), `●` em
+  andamento, `○` pendente (amarelo), `✗` bloqueado. Clique num item para abrir
+  ou fechar a descrição; a tarefa ativa abre sozinha.
+- **Badge de progresso compacto** (`session_prompt_right`) — `C2G ██████░░ 60%`
+  à direita da caixa de input, fora do indicador de "trabalhando".
 - **Trava de foco** — quando a sessão fica ociosa e ainda há tarefas pendentes,
   o plugin injeta um "continue" automático para o modelo seguir, até concluir
   tudo ou atingir os limites configurados.
@@ -65,6 +66,12 @@ Depois de `npm publish`, basta o nome:
 
 ```jsonc
 { "plugin": ["checklist-to-goal"] }
+```
+
+Ou pela CLI do OpenCode:
+
+```sh
+opencode plugin add checklist-to-goal
 ```
 
 > O array `plugin` resolve nomes simples **pelo registry do npm** — por isso o
@@ -119,10 +126,9 @@ Sobrescreva o caminho com a env var `CHECKLIST_TO_GOAL_STATE_PATH`.
 
 ## Notas
 
-- **Posição da barra de progresso:** usamos o slot `app_bottom`. Dependendo da
-  versão do OpenCode, ele pode cair logo abaixo do prompt ou no rodapé da app.
-  Se quiser em outro lugar, o slot é trocável em `src/tui.ts` (ex.:
-  `session_prompt_right`).
+- **Posição do badge de progresso:** usamos o slot `session_prompt_right` (à
+  direita do prompt), de propósito fora de `app_bottom` para não brigar com o
+  indicador de "trabalhando". O slot é trocável em `src/tui.ts`.
 - **Sem build:** o plugin é TypeScript puro; o OpenCode transpila no load.
 - **Compatibilidade:** suporta as duas gerações da API de TUI do OpenCode
   (`api.slots.register` e `context.ui.slot`).
