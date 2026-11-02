@@ -103,11 +103,15 @@ export function buildSystemRules(cl: Checklist): string {
  */
 export function buildTargetKickoff(): string {
   return [
-    "[Checklist-to-Goal — iniciar objetivo]",
-    "O usuário acabou de pedir (na última mensagem) para transformar o pedido em um objetivo rastreado por checklist.",
-    "- Quebre esse pedido em tarefas curtas, concretas e verificáveis, em ordem.",
-    "- Chame a tool `target_create` com `objective` + `tasks` (cada uma com `title` curto e `description` objetiva). Se o pedido apontar para um arquivo .md com itens \"- [ ]\", passe `markdownPath` em vez de `tasks`.",
-    "- Em seguida comece pela primeira tarefa. Não declare o objetivo concluído enquanto houver tarefas pendentes.",
+    "[Checklist-to-Goal — AÇÃO OBRIGATÓRIA ANTES DE QUALQUER RESPOSTA]",
+    "O usuário acionou /target na última mensagem. Sua PRÓXIMA AÇÃO, antes de escrever qualquer resposta ao pedido, DEVE ser chamar a tool `target_create`.",
+    "",
+    "NÃO responda o pedido diretamente ainda. NÃO escreva a história, o código, o texto, a receita ou a solução pedida antes de chamar `target_create`. Começar a responder sem antes chamar `target_create` é uma violação desta regra.",
+    "",
+    "Faça exatamente isto, nesta ordem:",
+    "1. Quebre o pedido da última mensagem em tarefas curtas, concretas e verificáveis, em ordem.",
+    "2. Chame `target_create` com `objective` + `tasks` (cada tarefa com `title` curto e `description` objetiva). Se o pedido apontar para um arquivo .md com itens \"- [ ]\", passe `markdownPath` no lugar de `tasks`.",
+    "3. Só depois do checklist criado, comece a executar a primeira tarefa. Não declare o objetivo concluído enquanto houver tarefas pendentes.",
   ].join("\n")
 }
 
