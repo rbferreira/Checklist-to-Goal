@@ -106,7 +106,7 @@ export function buildTargetKickoff(): string {
     "[Checklist-to-Goal — AÇÃO OBRIGATÓRIA ANTES DE QUALQUER RESPOSTA]",
     "O usuário acionou /target na última mensagem. Sua PRÓXIMA AÇÃO, antes de escrever qualquer resposta ao pedido, DEVE ser chamar a tool `target_create`.",
     "",
-    "NÃO responda o pedido diretamente ainda. NÃO escreva a história, o código, o texto, a receita ou a solução pedida antes de chamar `target_create`. Começar a responder sem antes chamar `target_create` é uma violação desta regra.",
+    "NÃO execute a tarefa solicitada pelo usuário antes de chamar `target_create`. Começar a executar o pedido sem antes criar o checklist é uma violação desta regra.",
     "",
     "Faça exatamente isto, nesta ordem:",
     "1. Quebre o pedido da última mensagem em tarefas curtas, concretas e verificáveis, em ordem.",
