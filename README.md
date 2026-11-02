@@ -29,26 +29,47 @@ preso na tarefa até terminar**, sem declarar conclusão sem evidência.
 
 ## Instalação
 
-Adicione ao array `plugin` do seu `opencode.json` / `opencode.jsonc`:
+### Local (a partir do código, sem publicar)
+
+Referencie o diretório do pacote no array `plugin` com um spec `file:`. O
+OpenCode carrega as duas metades (servidor + TUI) via os `exports` do
+`package.json`, igual a um pacote npm.
 
 ```jsonc
 {
   "plugin": [
-    "checklist-to-goal"
+    "file:C:/Claude/Checklist-to-Goal"
     // ...outros plugins
   ]
 }
 ```
 
-Para ajustar limites, use a forma de tupla:
+Com opções:
 
 ```jsonc
 {
   "plugin": [
-    ["checklist-to-goal", { "max_auto_turns": 200, "max_no_progress": 8 }]
+    ["file:C:/Claude/Checklist-to-Goal", { "max_auto_turns": 200, "max_no_progress": 8 }]
   ]
 }
 ```
+
+> Obs.: specs `file:` não passam pela checagem de atualização do OpenCode (um
+> WARN inofensivo nos logs). Para editar e recarregar, reinicie o OpenCode.
+
+### Publicado no npm
+
+Depois de `npm publish`, basta o nome:
+
+```jsonc
+{ "plugin": ["checklist-to-goal"] }
+```
+
+> O array `plugin` resolve nomes simples **pelo registry do npm** — por isso o
+> uso local precisa do prefixo `file:`. Soltar os arquivos em
+> `~/.config/opencode/plugins/` também funciona, mas exige empacotar cada
+> metade num arquivo único (os imports relativos não se resolvem lá); o
+> `file:` evita isso.
 
 | Opção            | Padrão | O que faz |
 |------------------|:------:|-----------|
@@ -57,14 +78,21 @@ Para ajustar limites, use a forma de tupla:
 
 ## Como funciona (arquitetura)
 
-O plugin tem duas metades, carregadas pelo OpenCode a partir do mesmo pacote:
+O plugin tem duas metades (API V2 do OpenCode: `export default { id, setup }`),
+carregadas a partir do mesmo pacote via `exports` (`.` → servidor, `./tui` →
+TUI):
 
-- **`src/server.ts`** (servidor) — registra as tools, injeta os comandos via o
-  hook `config`, injeta o checklist + regras no system prompt a cada turno
-  (`experimental.chat.system.transform`) e, no evento `session.idle`, envia a
-  continuação sintética (`client.session.promptAsync`).
-- **`src/tui.ts`** (interface) — desenha a sidebar e a barra de progresso lendo
-  o estado compartilhado.
+- **`src/server.ts`** (servidor) — no `setup(context)`:
+  - `context.tool.transform` registra as tools;
+  - `context.command.transform` injeta `/target` e `/add_goal`;
+  - `context.session.hook("context")` injeta o checklist + regras no system
+    prompt a cada turno;
+  - `context.session.hook("prompt")` rastreia o agente da sessão;
+  - `context.event.subscribe` escuta `session.idle` e, havendo tarefa pendente,
+    chama `context.session.prompt(...)` para a continuação sintética.
+- **`src/tui.ts`** (interface) — `setup(context)` registra os slots de UI
+  (`context.ui.slot`) e desenha a sidebar e a barra de progresso lendo o estado
+  compartilhado.
 
 As duas metades rodam em processos diferentes, então o estado vive em um
 arquivo JSON e a TUI o relê a cada 1s:
