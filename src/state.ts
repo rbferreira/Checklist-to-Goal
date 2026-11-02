@@ -130,6 +130,25 @@ export function newTask(title: string, description?: string): Task {
   return { id: `t${randomUUID().slice(0, 8)}`, title: title.trim(), description: d || undefined, status: "pending" }
 }
 
+/**
+ * Keep exactly one actionable task marked `active` — the first task that is
+ * neither done nor blocked — and everything else after it `pending`. Completing
+ * a task out of order used to leave two `active` tasks (so two rows auto-expanded);
+ * calling this after every mutation makes "active" deterministic.
+ */
+export function reconcileActive(cl: Checklist): void {
+  let activeSet = false
+  for (const t of cl.tasks) {
+    if (t.status === "done" || t.status === "blocked") continue
+    if (!activeSet) {
+      t.status = "active"
+      activeSet = true
+    } else {
+      t.status = "pending"
+    }
+  }
+}
+
 export interface Progress {
   done: number
   total: number

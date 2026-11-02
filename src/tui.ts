@@ -101,7 +101,15 @@ function checklistBox(cl: Checklist, pal: Palette, ctrl: ExpandController) {
       text({ fg }, [`${arrow} ${taskSymbol(t.status)} ${i + 1}. ${shortTitle(taskTitle(t), 38)}`]),
     ]
     if (open && desc) row.push(text({ fg: pal.muted }, [`      ${truncate(desc, 180)}`]))
-    children.push(box(desc ? { flexDirection: "column", onMouseDown: () => ctrl.toggle(t.id) } : { flexDirection: "column" }, row))
+    const rowBox = box({ flexDirection: "column" }, row)
+    if (desc) {
+      // OpenTUI's Renderable exposes onMouseDown as a direct property (its mouse
+      // system calls element.onMouseDown(event)). The solid reconciler's setProp
+      // only wires the `on:` namespace, not camelCase props — so assigning it via
+      // props was a dead attribute and clicks never fired. Set it on the node.
+      ;(rowBox as unknown as { onMouseDown?: (event: unknown) => void }).onMouseDown = () => ctrl.toggle(t.id)
+    }
+    children.push(rowBox)
   }
   return box({ flexDirection: "column" }, children)
 }

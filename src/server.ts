@@ -23,6 +23,7 @@ import {
   newTask,
   nextPending,
   progress,
+  reconcileActive,
   saveChecklist,
   taskTitle,
 } from "./state"
@@ -225,10 +226,9 @@ function buildTools(
         const cl = await getChecklist(ctx.sessionID)
         if (!cl) return { content: "Nenhum checklist ativo nesta sessão. Crie um com target_create." }
         const t = newTask(text)
-        const hasOpen = cl.tasks.some((x) => x.status === "active" || x.status === "pending")
-        if (!hasOpen) t.status = "active"
         cl.tasks.push(t)
         if (cl.status === "complete") cl.status = "active"
+        reconcileActive(cl)
         await saveChecklist(cl)
         return jsonContent(cl, { message: `Tarefa adicionada [${t.id}]: ${taskTitle(t)}` })
       },
@@ -263,15 +263,15 @@ function buildTools(
         task.evidence = ev
         task.completedAt = Date.now()
         task.blocker = undefined
-        const nextPend = cl.tasks.find((t) => t.status === "pending")
-        if (nextPend) nextPend.status = "active"
+        reconcileActive(cl)
         if (cl.tasks.every((t) => t.status === "done")) cl.status = "complete"
         await saveChecklist(cl)
+        const nextActive = cl.tasks.find((t) => t.status === "active")
         return jsonContent(cl, {
           message:
             cl.status === "complete"
               ? "🎉 Todas as tarefas concluídas com evidência. Objetivo alcançado."
-              : `Tarefa concluída. Próxima: "${nextPend ? taskTitle(nextPend) : "—"}". Continue agora.`,
+              : `Tarefa concluída. Próxima: "${nextActive ? taskTitle(nextActive) : "—"}". Continue agora.`,
         })
       },
     },
@@ -294,8 +294,7 @@ function buildTools(
         if (!task) return { content: `Tarefa "${id}" não encontrada.` }
         task.status = "blocked"
         task.blocker = reason.trim()
-        const nextPend = cl.tasks.find((t) => t.status === "pending")
-        if (nextPend) nextPend.status = "active"
+        reconcileActive(cl)
         await saveChecklist(cl)
         return jsonContent(cl, { message: `Tarefa [${task.id}] marcada como bloqueada.` })
       },
@@ -382,10 +381,9 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
           const title = (parts.shift() ?? raw).trim()
           const description = parts.join(" - ").trim() || undefined
           const t = newTask(title, description)
-          const hasOpen = cl.tasks.some((x) => x.status === "active" || x.status === "pending")
-          if (!hasOpen) t.status = "active"
           cl.tasks.push(t)
           if (cl.status === "complete") cl.status = "active"
+          reconcileActive(cl)
           await saveChecklist(cl)
         },
       })
