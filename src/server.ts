@@ -390,6 +390,17 @@ async function setup(context: V2Context): Promise<() => Promise<void>> {
         },
       })
     }
+    // /target_cancel — determinístico: remove o checklist da sessão e solta a
+    // trava (a próxima vez que a sessão ficar ociosa não haverá continuação).
+    if (!existing.has("target_cancel")) {
+      draft.add({
+        name: "target_cancel",
+        description: "Cancela e remove o checklist ativo da sessão (não aciona o modelo)",
+        execute: async (input) => {
+          await deleteChecklist(input.sessionID)
+        },
+      })
+    }
   })
 
   // Inject checklist + rules into the system prompt each turn.

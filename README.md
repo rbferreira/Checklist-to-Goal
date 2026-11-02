@@ -14,7 +14,9 @@ preso na tarefa até terminar**, sem declarar conclusão sem evidência.
 - **`/target <contexto>`** — pega o contexto do pedido, vira um objetivo e o
   quebra em tarefas concretas e verificáveis. Se o contexto apontar para um
   arquivo `.md` com itens `- [ ]`, ele usa esses itens como tarefas.
-- **`/add_goal <tarefa>`** — acrescenta uma tarefa ao checklist ativo.
+- **`/add_goal <tarefa>`** — acrescenta uma tarefa ao checklist ativo (aceita
+  "Título - descrição"). Determinístico: não aciona o modelo.
+- **`/target_cancel`** — cancela e remove o checklist ativo da sessão.
 - **Checklist na barra lateral** (`sidebar_content`) — objetivo, barra de
   progresso e todos os itens com estado (`☑` feito, `▸` em andamento,
   `☐` pendente, `⚠` bloqueado).
